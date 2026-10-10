@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Strafer settings storage</title>
+</head>
+<body>
+<p>This page keeps the settings of <a href="https://gamebanana.com/mods/725040">Strafer</a>, a HUD mod for Deadlock.
+The mod opens it in a hidden panel of the game, and the settings stay in the Steam browser storage on your PC. Nothing
+is sent anywhere.</p>
+<script>
+(function () {
+    "use strict";
+
+    // Protocol 1 (the mod's movement_compass_store.js is the other side). The mod changes only the fragment of this
+    // page's address: <page>#<encodeURIComponent(JSON {q, op, k, v})>, which arrives here as a hashchange. The page
+    // answers by setting its title to "MCS1:" + JSON {q, ok, v | e}, which the game reports to the mod. On load it
+    // announces itself with q "ready", the protocol and its own address.
+    //
+    // Only keys under "movement_compass/" are read or written. The fragment the page was loaded with is never run
+    // and every request id is answered once, so a reload or a step back in history cannot repeat a save.
+    var PROTOCOL = 1;
+    var TITLE_PREFIX = "MCS1:";
+    var KEY_PREFIX = "movement_compass/";
+    // Chromium cuts titles at 4096 characters.
+    var MAX_TITLE = 4000;
+    var answered = {};
+
+    function reply(message) {
+        var title = TITLE_PREFIX + JSON.stringify(message);
+        if (title.length > MAX_TITLE) {
+            title = TITLE_PREFIX + JSON.stringify({ q: message.q, ok: false, e: "reply too long" });
+        }
+        document.title = title;
+    }
+
+    function run(request) {
+        if (typeof request.k !== "string" || request.k.indexOf(KEY_PREFIX) !== 0) {
+            return { ok: false, e: "key not allowed" };
+        }
+        if (request.op === "get") {
+            return { ok: true, v: window.localStorage.getItem(request.k) };
+        }
+        if (request.op === "set" && typeof request.v === "string") {
+            window.localStorage.setItem(request.k, request.v);
+            return { ok: true };
+        }
+        return { ok: false, e: "unknown request" };
+    }
+
+    function onHashChange() {
+        var request = null;
+        try {
+            request = JSON.parse(decodeURIComponent(window.location.hash.slice(1)));
+        } catch (e) {
+            return;
+        }
+        if (!request || typeof request.q !== "string" || !request.q || request.q === "ready" || answered[request.q]) {
+            return;
+        }
+        answered[request.q] = true;
+        var result;
+        try {
+            result = run(request);
+        } catch (e) {
+            result = { ok: false, e: String(e) };
+        }
+        result.q = request.q;
+        reply(result);
+    }
+
+    window.addEventListener("hashchange", onHashChange);
+    reply({ q: "ready", ok: true, p: PROTOCOL, h: window.location.origin + window.location.pathname });
+})();
+</script>
+</body>
+</html>
